@@ -79,8 +79,9 @@ func UnaryClientInterceptor(optFuncs ...CallOption) grpc.UnaryClientInterceptor 
 // changed through options (e.g. WithMax) on creation of the interceptor or on call (through grpc.CallOptions).
 //
 // Retry logic is available *only for ServerStreams*, i.e. 1:n streams, as the internal logic needs
-// to buffer the messages sent by the client. If retry is enabled on any other streams (ClientStreams,
-// BidiStreams), the retry interceptor will fail the call.
+// to buffer the messages sent by the client. Calls on any other streams (ClientStreams,
+// BidiStreams) are not replayable, so they are passed through without retry instead of being
+// failed or re-sent with an already-consumed request.
 func StreamClientInterceptor(optFuncs ...CallOption) grpc.StreamClientInterceptor {
 	intOpts := reuseOrNewWithCallOptions(defaultOptions, optFuncs)
 	return func(parentCtx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -91,7 +92,11 @@ func StreamClientInterceptor(optFuncs ...CallOption) grpc.StreamClientIntercepto
 			return streamer(parentCtx, desc, cc, method, grpcOpts...)
 		}
 		if desc.ClientStreams {
-			return nil, status.Error(codes.Unimplemented, "grpc_retry: cannot retry on ClientStreams, set grpc_retry.Disable()")
+			// ClientStreams and BidiStreams are not replayable: the messages sent by the
+			// client cannot be buffered and resent, so a retry would re-invoke the call
+			// with an already-consumed request. Pass the call through untouched, without
+			// retrying, instead of failing it.
+			return streamer(parentCtx, desc, cc, method, grpcOpts...)
 		}
 
 		var lastErr error

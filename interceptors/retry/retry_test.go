@@ -612,3 +612,27 @@ func TestStreamClientInterceptorRespectsRetryInfo(t *testing.T) {
 	require.Equal(t, 2, attempts)
 	require.GreaterOrEqual(t, time.Since(start), delay)
 }
+
+func TestStreamClientInterceptorPassesThroughClientStreams(t *testing.T) {
+	t.Parallel()
+
+	recvErr := status.Error(codes.Unavailable, "unavailable")
+	for _, desc := range []*grpc.StreamDesc{
+		{ClientStreams: true},                      // client streaming
+		{ClientStreams: true, ServerStreams: true}, // bidi streaming
+	} {
+		attempts := 0
+		streamer := func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+			attempts++
+			return &failingClientStream{RecvMsgErr: recvErr}, nil
+		}
+
+		interceptor := StreamClientInterceptor(WithMax(3), WithBackoff(BackoffLinear(0)))
+		stream, err := interceptor(t.Context(), desc, nil, "/test/stream", streamer)
+		require.NoError(t, err, "non-replayable streams must not be failed by the interceptor")
+
+		// The error surfaces from the single underlying call and is not retried.
+		require.ErrorIs(t, stream.RecvMsg(nil), recvErr)
+		require.Equal(t, 1, attempts, "non-replayable streams must not be re-sent")
+	}
+}

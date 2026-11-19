@@ -7,7 +7,8 @@ Package retry provides client-side request retry logic for gRPC.
 # Client-Side Request Retry Interceptor
 
 It allows for automatic retry, inside the generated gRPC code of requests based on the gRPC status
-of the reply. It supports unary (1:1), and server stream (1:n) requests.
+of the reply. It supports unary (1:1), and server stream (1:n) requests. Client stream (n:1) and
+bidi stream (n:m) requests are not replayable, so they are passed through without retry.
 
 By default the interceptors *are disabled*, preventing accidental use of retries. You can easily
 override the number of retries (setting them to more than 0) with a `grpc.ClientOption`, e.g.:
